@@ -30,7 +30,7 @@ def start_smart_bin():
         material = material_map[choice]
         
         print(f"\n[HATCH UNLOCKED] {material} Bin Hatch is OPEN.")
-        raw_weight_input = input("Enter Simulated Garbage Weight in kg (e.g., 0.85): ").strip()
+        raw_weight_input = input("Enter Simulated Garbage Weight in kg: ").strip()
         
         try:
             raw_weight = float(raw_weight_input)
