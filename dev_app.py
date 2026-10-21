@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 import requests
+from streamlit_autorefresh import st_autorefresh
 
 # ==================== 页面高级配置 ====================
 st.set_page_config(
@@ -10,9 +11,14 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# 🌟 核心同步大杀器：每隔 3 秒自动刷新一次管理大屏拉取最新统计
+# 这样当 IoT 投递成功后，管理大屏最多等 3 秒就会自动跟新数据，无需手动刷新！
+st_autorefresh(interval=3000, limit=1000, key="dev_fizz_refresh")
+
 # ==================== 真实网络数据拉取 ====================
-BACKEND_DATA_URL = "http://localhost:5000/api/v1/resident/data"
-CLEAR_CONTAINER_URL = "http://localhost:5000/api/v1/developer/clear-container"
+# 统一使用 127.0.0.1 避免延迟，完美锁定双向同步
+BACKEND_DATA_URL = "http://127.0.0.1:5000/api/v1/resident/data"
+CLEAR_CONTAINER_URL = "http://127.0.0.1:5000/api/v1/developer/clear-container"
 
 try:
     response = requests.get(BACKEND_DATA_URL, timeout=1.0)
@@ -204,8 +210,10 @@ with col_left:
         if st.button("Dispatch Collection Truck & Clear Containers", use_container_width=True):
             with st.spinner("Transmitting clearance dispatch order to Fleet..."):
                 if server_connected:
-                    try: requests.post(CLEAR_CONTAINER_URL, timeout=2.0)
-                    except Exception: pass
+                    try: 
+                        requests.post(CLEAR_CONTAINER_URL, timeout=2.0)
+                    except Exception: 
+                        pass
                 else:
                     time.sleep(1.5)
             st.success("Dispatch command successfully sent! Containers cleared.")

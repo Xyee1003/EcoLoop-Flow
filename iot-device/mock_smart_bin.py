@@ -5,8 +5,8 @@ import time
 import qrcode
 import numpy as np
 
-# 后端服务器 API 地址
-BACKEND_API = "http://localhost:5000/api/v1/iot/disposal"
+# 后端服务器 API 地址 (统一使用 127.0.0.1 避免 DNS 延迟导致的软硬件不同步)
+BACKEND_API = "http://127.0.0.1:5000/api/v1/iot/disposal"
 BIN_ID = "ELMINA_CONDO_FL15_PLASTIC"
 
 def generate_terminal_qr(data_text):
@@ -20,28 +20,46 @@ def generate_terminal_qr(data_text):
 def run_ai_camera_inspection():
     """
     启动边缘 AI 摄像头：
-    1. 调取真实摄像头画面；
-    2. 叠加科技感 HUD 准星与检测框；
-    3. 按空格键捕获废品并完成 AI 纯度与材质推断。
+    - 优先尝试调用真实摄像头，叠加 HUD 准星，按空格进行 AI 纯度与材质推断。
+    - 🟢 【终极容灾】：如果摄像头打不开，自动无缝降级为“AI 模拟推理模式”，支持手动选择分类！
     """
     print("\n[AI Edge Vision] Initializing On-Device Camera Sensor...")
     cap = cv2.VideoCapture(0)  # 打开默认摄像头
     
+    # 💥 【容灾处理】检测到摄像头打不开或未检测到：自动切换到高级模拟推理
     if not cap.isOpened():
-        print("⚠️ [CAMERA WARNING] No physical camera detected. Falling back to Simulated Edge AI inference.")
-        time.sleep(1.0)
-        return "PET Plastic", 0.95, False
+        print("⚠️ [CAMERA NOT DETECTED] Automatically switching to Edge AI Simulation Model.")
+        print("👉 Choose simulated drop-off quality:")
+        print("   Press [1] - High Purity PET (Clean, Dry) - 96% Purity")
+        print("   Press [2] - Contaminated Waste (Liquid inside) - 35% Purity (Trigger Anomaly)")
+        
+        choice = input("Enter choice (1 or 2, default is 1): ").strip()
+        print("\n[AI INFERENCE] Running MobileNet-v3 Classifier on Simulated Edge Tensor...")
+        time.sleep(1.0) # 模拟 AI 推理计算时间
+        
+        if choice == "2":
+            print("🚨 [AI RESULT] High contamination / Opacity detected. Purity: 35%")
+            return "Contaminated Waste / Dark Liquid", 0.35, True
+        else:
+            print("✅ [AI RESULT] Clean PET Recyclable verified. Confidence: 96.4%, Purity: 0.96")
+            return "Clean PET Plastic", 0.96, False
 
+    # 📸 如果摄像头能正常打开，运行正常的高动态 HUD 识别：
     print("📸 [CAMERA READY] Target the recyclable item in front of the camera.")
     print("👉 Press [SPACEBAR] to Capture & Run AI Inference | Press [Q] to Cancel.")
 
-    detected_material = "PET Plastic"
-    purity_factor = 0.95
+    detected_material = "Clean PET Plastic"
+    purity_factor = 0.96
     is_anomaly = False
 
     while True:
         ret, frame = cap.read()
         if not ret:
+            # 💥 【容灾处理】读取画面帧失败时的二级兜底
+            print("⚠️ [FRAME ERROR] Frame capture failed. Recovering with default simulated inference...")
+            detected_material = "Clean PET Plastic"
+            purity_factor = 0.96
+            is_anomaly = False
             break
 
         # 画面镜像翻转，体验更自然
@@ -54,7 +72,7 @@ def run_ai_camera_inspection():
         
         cv2.rectangle(frame, (box_x1, box_y1), (box_x2, box_y2), (38, 92, 28), 2)
         
-        # 叠加实时遥测文字
+        # 叠加实时遥测 HUD 文字
         cv2.putText(frame, "ECOLOOP-FLOW EDGE AI INSPECTOR v2.4", (20, 35), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.65, (38, 92, 28), 2)
         cv2.putText(frame, "STATUS: TRACKING ITEM IN CHUTE CHAMBER", (20, 65), 
@@ -66,15 +84,15 @@ def run_ai_camera_inspection():
         key = cv2.waitKey(1) & 0xFF
 
         # 按空格键完成拍照与 AI 推断
-        if key == 32:  # ASCII for Space
-            # 视觉闪烁效果模拟拍照
+        if key == 32:  # Space
+            # 模拟相机闪光灯效果
             flash = np.ones(frame.shape, dtype="uint8") * 255
             cv2.imshow("EcoLoop Smart Bin - AI Chute Camera", flash)
             cv2.waitKey(100)
 
-            # 模拟轻量模型推理分析 (提取中心区域平均亮度/色彩判断透明度)
+            # 模拟轻量模型推理分析 (提取中心区域平均色彩判断透明度)
             roi = frame[box_y1:box_y2, box_x1:box_x2]
-            avg_color = roi.mean(axis=0).mean(axis=0)  # BGR 均值
+            avg_color = roi.mean(axis=0).mean(axis=0)
 
             print("\n[AI INFERENCE] Running MobileNet-v3 Classifier on Edge Tensor...")
             time.sleep(1.0)
@@ -91,8 +109,8 @@ def run_ai_camera_inspection():
                 purity_factor = 0.96
                 is_anomaly = False
                 print("✅ [AI RESULT] Clean PET Recyclable verified. Confidence: 96.4%, Purity: 0.96")
-
             break
+            
         elif key == ord('q'):
             print("[CAMERA] Scan aborted by user.")
             break
@@ -125,7 +143,7 @@ def start_smart_bin():
             print("[ERROR] Weight must be numeric!")
             continue
 
-        # 3. 调取 AI 摄像头执行视觉质检
+        # 3. 调取 AI 摄像头执行视觉质检 (支持自动降级与模拟)
         material, purity, is_anomaly = run_ai_camera_inspection()
 
         # 4. 防作弊逻辑比对 (重量-体积比对)

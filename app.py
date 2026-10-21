@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 import requests
+from streamlit_autorefresh import st_autorefresh
 
 # ==================== 页面高级配置 ====================
 st.set_page_config(
@@ -10,16 +11,23 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# 🌟 核心同步大杀器：每隔 3 秒自动刷新一次网页拉取服务器最新状态
+# 这样当 IoT 投递成功后，网页最多等 3 秒就会自动同步更新，无需手动刷新！
+st.logo("https://i.imgur.com/vA1z43I.png", icon_image="https://i.imgur.com/vA1z43I.png")
+
+# 使用 Streamlit 官方自带的定时执行组件
+# 每 3000 毫秒（3秒）自动刷新一次状态
+st_autorefresh(interval=3000, limit=1000, key="fizzbuzzcounter")
+
 # ==================== 后端中转 API 配置 ====================
-# 如果本地运行了 server.py，App 会自动去拉取共享的最新数据，实现 IoT 和 App 的实时互通。
-# 如果服务器没有启动，系统将优雅降级为本地缓存，确保演示时绝对不崩溃。
-BACKEND_URL = "http://localhost:5000/api/v1/resident/data"
-CASHOUT_URL = "http://localhost:5000/api/v1/resident/cashout"
+BACKEND_URL = "http://127.0.0.1:5000/api/v1/resident/data"
+CASHOUT_URL = "http://127.0.0.1:5000/api/v1/resident/cashout"
 
 try:
     response = requests.get(BACKEND_URL, timeout=1.5)
     if response.status_code == 200:
         server_data = response.json()
+        # 🌟 核心修复：直接将服务器数据强制写入 session_state 缓存，确保双向绑定 🌟
         st.session_state.balance = server_data["balance"]
         st.session_state.total_weight = server_data["total_weight"]
         st.session_state.history = server_data["history"]
@@ -30,7 +38,7 @@ try:
 except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
     server_connected = False
 
-# 优雅降级数据兜底机制
+# 优雅降级数据兜底机制（服务器没启动时使用本地模拟数据）
 if not server_connected:
     if 'balance' not in st.session_state: st.session_state.balance = 24.50
     if 'total_weight' not in st.session_state: st.session_state.total_weight = 15.4
@@ -315,50 +323,140 @@ with tab1:
         </div>
         """, unsafe_allow_html=True)
 
-# ==================== TAB 2: 扫码投递 (带 AI 防作弊) ====================
+# ==================== TAB 2: 🔑 Scan & Drop (数字孪生动态扫描中心与实时遥测) ====================
 with tab2:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("<h3 style='color: #113826; margin: 0; font-weight:600;'>Unlock Floor Smart Chute</h3>", unsafe_allow_html=True)
-    st.write("Align the bin's QR code within the camera frame below to unlock.")
-    
-    picture = st.camera_input("Point your camera at the Smart Bin's QR Code", label_visibility="collapsed")
-    
-    if picture:
-        st.success("QR Code Image captured successfully.")
-        with st.status("Analyzing QR Code & Verifying resident ID...", expanded=True) as status:
-            time.sleep(1.0)
-            st.write("🔑 Decoded: Bin_ID = [ELMINA_CONDO_FL15_PLASTIC]")
-            time.sleep(0.5)
-            status.update(label="Hatch Gate Unlocked. Drop your items now.", state="complete")
-        st.balloons()
-        
-        st.markdown("---")
-        st.markdown("<h4>IoT Hardware Telemetry Simulation</h4>", unsafe_allow_html=True)
-        
-        sim_weight = st.slider("Step 1: Set Garbage Weight (kg)", 0.1, 4.0, 0.85)
-        sim_purity = st.slider("Step 2: Set Cleanliness/Purity Factor", 0.0, 1.0, 0.95)
-        
-        is_anomaly = False
-        if sim_weight > 1.8:
-            is_anomaly = True
-            st.error("🚨 **AI High-Density Anomaly Detected:** Volume-to-weight ratio mismatch. Hatch locked.")
+    st.markdown("<h3 style='color: #113826; margin: 0; font-weight:600;'>Smart Chute Live Telemetry</h3>", unsafe_allow_html=True)
+    st.write("Scan to unlock floor gravity chute. Live sensors and Edge AI will inspect the weight, material grade, and purity factor.")
 
-        if st.button("Simulate Disposal Complete"):
-            if is_anomaly:
-                st.error("Disposal Rejected. Please clean the bottles of any liquids and retry.")
-            else:
-                material = "PET Plastic Bottles"
-                rate = 0.80
-                earnings = sim_weight * rate * sim_purity
-                st.session_state.balance += earnings
-                st.session_state.total_weight += sim_weight
-                st.session_state.container_fill = min(100.0, st.session_state.container_fill + (sim_weight * 0.5))
-                st.session_state.history.append({
-                    "date": "2026-10-21", "type": material, "weight": sim_weight, "earn": earnings
-                })
-                st.success("Disposal success. Balance credited.")
-                time.sleep(1.5)
-                st.rerun()
+    # 扫描与解锁卡片
+    if 'hatch_unlocked' not in st.session_state:
+        st.session_state.hatch_unlocked = False
+
+    if not st.session_state.hatch_unlocked:
+        # 雷达扫描激活按钮
+        st.markdown("""
+        <div style="background: white; border: 1px solid #E5E7EB; border-radius: 14px; padding: 24px; text-align: center; margin: 15px 0 20px 0;">
+            <div style="font-size: 0.85rem; color: #6B7280; font-weight: 600; text-transform: uppercase;">Proximity Chute Node</div>
+            <div style="font-size: 1.3rem; font-weight: 700; color: #113826; margin: 4px 0;">ELMINA_CONDO_FL15_PLASTIC</div>
+            <div style="font-size: 0.8rem; color: #9CA3AF; margin-bottom: 16px;">Bluetooth Low Energy (BLE) Beacon Signal: Strong (-48 dBm)</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Unlock Chute Hatch", use_container_width=True):
+            with st.spinner("Authorizing resident token with Floor Controller..."):
+                time.sleep(1.0)
+            st.session_state.hatch_unlocked = True
+            st.balloons()
+            st.rerun()
+
+    else:
+        # 状态：已开锁并进入实时称重与 AI 质检阶段
+        st.markdown("""
+        <div style="background-color: #EEF2EE; border: 1.5px solid #113826; border-radius: 12px; padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <span style="color: #113826; font-weight: 700;">Hatch Status: OPEN</span>
+                <span style="color: #4B5563; font-size: 0.85rem; margin-left: 10px;">ID: ELMINA_CONDO_FL15</span>
+            </div>
+            <span style="font-size: 0.8rem; background-color: #113826; color: white; padding: 4px 10px; border-radius: 20px; font-weight: 600;">AI Camera Active</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("<h4 style='color: #113826; margin-top: 10px; font-weight:600;'>Live Sensor Readings</h4>", unsafe_allow_html=True)
+        
+        # 演示滑块：调节重量与纯度（演示时可随时拖动）
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            sim_weight = st.slider("Scale Weight (kg)", min_value=0.10, max_value=4.00, value=1.25, step=0.05)
+        with col_s2:
+            sim_purity = st.slider("AI Purity Score", min_value=0.10, max_value=1.00, value=0.96, step=0.02)
+
+        # 核心参数计算
+        material_name = "PET Plastic"
+        unit_rate = 0.80  # RM 0.80 / kg
+        is_anomaly = sim_weight > 2.0 or sim_purity < 0.40
+        payout_earned = round(sim_weight * unit_rate * sim_purity, 2)
+
+        # 4 宫格遥测看板 (高质感卡片布局)
+        st.markdown(f"""
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 15px 0;">
+            <!-- 1. 重量卡片 -->
+            <div style="background: white; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;">
+                <div style="font-size: 0.75rem; color: #6B7280; font-weight: 600; text-transform: uppercase;">1. Measured Weight</div>
+                <div style="font-size: 1.8rem; font-weight: 700; color: #113826; margin-top: 4px;">{sim_weight:.2f} <span style="font-size: 1rem; font-weight: 500;">kg</span></div>
+                <div style="font-size: 0.75rem; color: #10B981; margin-top: 2px;">High-precision load cell</div>
+            </div>
+            <!-- 2. 材质与单价卡片 -->
+            <div style="background: white; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;">
+                <div style="font-size: 0.75rem; color: #6B7280; font-weight: 600; text-transform: uppercase;">2. Material & Rate</div>
+                <div style="font-size: 1.8rem; font-weight: 700; color: #113826; margin-top: 4px;">RM {unit_rate:.2f} <span style="font-size: 0.9rem; font-weight: 500;">/kg</span></div>
+                <div style="font-size: 0.75rem; color: #4B5563; margin-top: 2px;">Grade: {material_name}</div>
+            </div>
+            <!-- 3. AI 纯度卡片 -->
+            <div style="background: white; border: 1px solid #E5E7EB; border-radius: 12px; padding: 16px;">
+                <div style="font-size: 0.75rem; color: #6B7280; font-weight: 600; text-transform: uppercase;">3. AI Purity Factor</div>
+                <div style="font-size: 1.8rem; font-weight: 700; color: {'#113826' if sim_purity >= 0.7 else '#D97706'}; margin-top: 4px;">{int(sim_purity * 100)}%</div>
+                <div style="font-size: 0.75rem; color: {'#10B981' if sim_purity >= 0.7 else '#D97706'}; margin-top: 2px;">{'Clean, dry recyclable' if sim_purity >= 0.7 else 'Minor impurity detected'}</div>
+            </div>
+            <!-- 4. 即时收益卡片 -->
+            <div style="background: white; border: 1.5px solid #113826; border-radius: 12px; padding: 16px;">
+                <div style="font-size: 0.75rem; color: #113826; font-weight: 600; text-transform: uppercase;">4. Instant Payout</div>
+                <div style="font-size: 1.8rem; font-weight: 700; color: #113826; margin-top: 4px;">RM {payout_earned:.2f}</div>
+                <div style="font-size: 0.75rem; color: #10B981; margin-top: 2px;">Direct credit to wallet</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 透明公式明细卡片
+        st.markdown(f"""
+        <div style="background-color: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 10px; padding: 14px 18px; margin-bottom: 20px;">
+            <div style="font-size: 0.8rem; color: #6B7280; font-weight: 600; text-transform: uppercase; margin-bottom: 6px;">Transparent Calculation Breakdown</div>
+            <div style="font-family: monospace; font-size: 0.95rem; color: #111827;">
+                {sim_weight:.2f} kg &times; RM {unit_rate:.2f} &times; {int(sim_purity * 100)}% Purity = <strong style="color: #113826; font-size: 1.05rem;">RM {payout_earned:.2f}</strong>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 防作弊提示或完成投递按钮
+        if is_anomaly:
+            st.error("Anomaly Alert: The measured density or purity violates safety thresholds. Please remove liquids or unapproved items to proceed.")
+        else:
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                if st.button("Confirm Disposal & Disburse", use_container_width=True):
+                    with st.spinner("Locking hatch and issuing micro-payout..."):
+                        if server_connected:
+                            try:
+                                payload = {
+                                    "user_id": "user_tang_01",
+                                    "measured_weight_kg": sim_weight,
+                                    "purity_factor": sim_purity,
+                                    "material_type": material_name
+                                }
+                                # 🌟 核心同步修复：投递数据上传给中转站 🌟
+                                requests.post("http://127.0.0.1:5000/api/v1/iot/disposal", json=payload, timeout=2.0)
+                            except Exception:
+                                pass
+                        else:
+                            st.session_state.balance += payout_earned
+                            st.session_state.total_weight += sim_weight
+                            st.session_state.container_fill = min(100.0, st.session_state.container_fill + (sim_weight * 0.5))
+                            st.session_state.history.append({
+                                "date": "2026-10-21",
+                                "type": material_name,
+                                "weight": sim_weight,
+                                "earn": payout_earned
+                            })
+                            time.sleep(1.0)
+                    st.success(f"Disposal complete. RM {payout_earned:.2f} has been credited to your EcoBalance.")
+                    st.session_state.hatch_unlocked = False
+                    time.sleep(1.2)
+                    st.rerun()
+
+            with col_b2:
+                if st.button("Cancel & Lock Hatch", use_container_width=True):
+                    st.session_state.hatch_unlocked = False
+                    st.rerun()
 
 # ==================== TAB 3: 🌟 社区筑路 2.5D 等距交互地图 🌟 ====================
 with tab3:
@@ -387,7 +485,7 @@ with tab3:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 🗺️ 极精美等距 2.5D 科技风格地图 (安全解锁渲染)
+    # 🗺️ 极精美等距 2.5D 科技风格地图
     st.markdown("""
     <div style="background-color: #F3F4F6; padding: 15px; border-radius: 16px; border: 1px solid #E5E7EB; text-align: center; margin-bottom: 20px; box-shadow: inset 0 2px 10px rgba(0,0,0,0.03);">
         <svg viewBox="0 0 400 280" width="100%" height="auto" style="border-radius: 12px; background-color: #F8FAFC;">
