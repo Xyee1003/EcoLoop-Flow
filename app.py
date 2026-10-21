@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import requests
 
 # ==================== 页面高级配置 ====================
 st.set_page_config(
@@ -9,14 +10,46 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==================== 注入自定义 CSS 样式 (去Emoji、高端极简 UI) ====================
+# ==================== 后端中转 API 配置 ====================
+# 如果本地运行了 server.py，App 会自动去拉取共享的最新数据，实现 IoT 和 App 的实时互通。
+# 如果服务器没有启动，系统将优雅降级为本地缓存，确保演示时绝对不崩溃。
+BACKEND_URL = "http://localhost:5000/api/v1/resident/data"
+CASHOUT_URL = "http://localhost:5000/api/v1/resident/cashout"
+
+try:
+    response = requests.get(BACKEND_URL, timeout=1.5)
+    if response.status_code == 200:
+        server_data = response.json()
+        st.session_state.balance = server_data["balance"]
+        st.session_state.total_weight = server_data["total_weight"]
+        st.session_state.history = server_data["history"]
+        st.session_state.container_fill = server_data["container_fill"]
+        server_connected = True
+    else:
+        server_connected = False
+except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+    server_connected = False
+
+# 优雅降级数据兜底机制
+if not server_connected:
+    if 'balance' not in st.session_state: st.session_state.balance = 24.50
+    if 'total_weight' not in st.session_state: st.session_state.total_weight = 15.4
+    if 'history' not in st.session_state:
+        st.session_state.history = [
+            {"date": "2026-10-18", "type": "Aluminum Cans", "weight": 1.2, "earn": 3.60},
+            {"date": "2026-10-19", "type": "PET Plastic Bottles", "weight": 2.5, "earn": 2.00},
+            {"date": "2026-10-20", "type": "Paper & Cardboard", "weight": 5.4, "earn": 2.16}
+        ]
+    if 'container_fill' not in st.session_state: st.session_state.container_fill = 82.5
+
+# ==================== 注入自定义 CSS 样式 (高端极简、极具现代感) ====================
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
     html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        background-color: #FAFAF9; /* 温暖舒缓的极简米白 */
+        background-color: #FAFAF9; /* 极简米白 */
     }
     
     #MainMenu, footer, header { visibility: hidden; }
@@ -46,7 +79,7 @@ st.markdown("""
         letter-spacing: 0.5px;
     }
 
-    /* 极简精致钱包卡片 */
+    /* 奢华钱包大卡片 */
     .wallet-card {
         background: white;
         padding: 24px;
@@ -117,7 +150,7 @@ st.markdown("""
         color: #113826;
     }
 
-    /* 楼层排名表格行 */
+    /* 楼层排名行样式 */
     .leaderboard-row {
         background: white; 
         border-radius: 10px; 
@@ -163,17 +196,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== 初始化本地缓存数据库 ====================
-if 'balance' not in st.session_state: st.session_state.balance = 24.50
-if 'total_weight' not in st.session_state: st.session_state.total_weight = 15.4
-if 'history' not in st.session_state:
-    st.session_state.history = [
-        {"date": "2026-10-18", "type": "Aluminum Cans", "weight": 1.2, "earn": 3.60},
-        {"date": "2026-10-19", "type": "PET Plastic Bottles", "weight": 2.5, "earn": 2.00},
-        {"date": "2026-10-20", "type": "Paper & Cardboard", "weight": 5.4, "earn": 2.16}
-    ]
-if 'container_fill' not in st.session_state: st.session_state.container_fill = 82.5
-
 # ==================== 📱 App 顶部企业横幅 ====================
 st.markdown("""
 <div class="brand-container">
@@ -181,6 +203,9 @@ st.markdown("""
     <div class="brand-subtitle">Smart Condo Micro-Payout & Utility Offset Network</div>
 </div>
 """, unsafe_allow_html=True)
+
+if not server_connected:
+    st.caption("ℹ️ *Running in Offline Demo Mode. Start server.py to connect to real smart bins.*")
 
 # ==================== Tab 导航栏 ====================
 tab1, tab2, tab3 = st.tabs(["Wallet & Offsets", "Scan & Drop", "Community Map"])
@@ -215,7 +240,12 @@ with tab1:
     if "Touch 'n Go" in payout_channel:
         if st.button("Proceed Touch 'n Go Transfer", use_container_width=True):
             if st.session_state.balance > 0:
-                with st.spinner("Connecting to secure TNG Merchant API..."): time.sleep(1.5)
+                with st.spinner("Connecting to secure TNG Merchant API..."):
+                    if server_connected:
+                        try: requests.post(CASHOUT_URL, timeout=2)
+                        except requests.exceptions.RequestException: pass
+                    else:
+                        time.sleep(1.5)
                 st.success(f"RM {st.session_state.balance:.2f} successfully credited to your Touch 'n Go Wallet.")
                 st.session_state.balance = 0.00
                 st.rerun()
@@ -225,7 +255,12 @@ with tab1:
         utility_choice = st.selectbox("Select Utility Bill:", ["TNB (Electricity Bill) - Account: 2201992...", "Syabas (Water Bill) - Account: 9923018..."])
         if st.button(f"Apply Credit to {utility_choice.split()[0]}", use_container_width=True):
             if st.session_state.balance > 0:
-                with st.spinner("Applying rebate to your next utility statement..."): time.sleep(1.5)
+                with st.spinner("Applying rebate to your next utility statement..."):
+                    if server_connected:
+                        try: requests.post(CASHOUT_URL, timeout=2)
+                        except requests.exceptions.RequestException: pass
+                    else:
+                        time.sleep(1.5)
                 st.success(f"Approved. RM {st.session_state.balance:.2f} will be automatically deducted from your next bill.")
                 st.session_state.balance = 0.00
                 st.rerun()
@@ -312,7 +347,7 @@ with tab2:
             if is_anomaly:
                 st.error("Disposal Rejected. Please clean the bottles of any liquids and retry.")
             else:
-                material = "Plastic"
+                material = "PET Plastic Bottles"
                 rate = 0.80
                 earnings = sim_weight * rate * sim_purity
                 st.session_state.balance += earnings
@@ -325,10 +360,10 @@ with tab2:
                 time.sleep(1.5)
                 st.rerun()
 
-# ==================== TAB 3: 🌟 社区筑路交互地图与计划进度 🌟 ====================
+# ==================== TAB 3: 🌟 社区筑路 2.5D 等距交互地图 🌟 ====================
 with tab3:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("<h3 style='color: #113826; margin: 0; font-weight:600;'>EcoLoop-Flow Live Paving Map</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: #113826; margin: 0; font-weight:600;'>EcoLoop-Flow Live 3D Paving Map</h3>", unsafe_allow_html=True)
     st.write("Sime Darby Property transforms your recycled plastics directly into high-value township infrastructure. Walk around and see your eco-impact!")
     
     # 进度与省钱看板小卡片
@@ -352,56 +387,88 @@ with tab3:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 🗺️ 极精美高保真社区 SVG 地图 🗺️
+    # 🗺️ 极精美等距 2.5D 科技风格地图 (安全解锁渲染)
     st.markdown("""
     <div style="background-color: #F3F4F6; padding: 15px; border-radius: 16px; border: 1px solid #E5E7EB; text-align: center; margin-bottom: 20px; box-shadow: inset 0 2px 10px rgba(0,0,0,0.03);">
-        <svg viewBox="0 0 400 240" width="100%" height="auto" style="border-radius: 12px; background-color: #ECFDF5;">
+        <svg viewBox="0 0 400 280" width="100%" height="auto" style="border-radius: 12px; background-color: #F8FAFC;">
             <defs>
-                <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                    <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#D1FAE5" stroke-width="0.5"/>
+                <pattern id="iso-grid" width="30" height="15" patternUnits="userSpaceOnUse">
+                    <path d="M 15 0 L 30 7.5 L 15 15 L 0 7.5 Z" fill="none" stroke="#E2E8F0" stroke-width="0.5"/>
                 </pattern>
+                
+                <linearGradient id="wall-front" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#113826"/>
+                    <stop offset="100%" stop-color="#092113"/>
+                </linearGradient>
+                <linearGradient id="wall-side" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#1E5C36"/>
+                    <stop offset="100%" stop-color="#113826"/>
+                </linearGradient>
+                <linearGradient id="roof-top" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#34D399"/>
+                    <stop offset="100%" stop-color="#10B981"/>
+                </linearGradient>
+                
+                <filter id="soft-shadow" x="-10%" y="-10%" width="120%" height="120%">
+                    <feDropShadow dx="0" dy="8" stdDeviation="5" flood-color="#000000" flood-opacity="0.08" />
+                </filter>
             </defs>
-            <rect width="400" height="240" fill="url(#grid)" />
             
-            <path d="M 40 120 C 120 40, 280 40, 360 120" stroke="#94A3B8" stroke-width="12" fill="none" stroke-linecap="round" />
-            <path d="M 40 120 C 120 200, 280 200, 360 120" stroke="#113826" stroke-width="12" fill="none" stroke-linecap="round" />
-            <path d="M 40 120 C 120 200, 280 200, 360 120" stroke="#FFFFFF" stroke-dasharray="8,6" stroke-width="2" fill="none" stroke-linecap="round" />
+            <rect width="400" height="280" fill="#F1F5F9" />
+            <rect width="400" height="280" fill="url(#iso-grid)" opacity="0.6" />
             
-            <g transform="translate(60, 45)">
-                <rect x="0" y="0" width="65" height="42" rx="8" fill="#113826" />
-                <text x="32" y="25" fill="#FFFFFF" font-family="'Inter'" font-size="10" font-weight="700" text-anchor="middle">Block A</text>
-            </g>
-            <g transform="translate(275, 45)">
-                <rect x="0" y="0" width="65" height="42" rx="8" fill="#113826" />
-                <text x="32" y="25" fill="#FFFFFF" font-family="'Inter'" font-size="10" font-weight="700" text-anchor="middle">Block B</text>
-            </g>
+            <path d="M 50 140 L 200 65 L 350 140 L 200 215 Z" fill="#94A3B8" />
+            <path d="M 50 140 L 200 65 L 350 140 L 200 215 Z" fill="none" stroke="#113826" stroke-width="16" stroke-linejoin="round" />
+            <path d="M 50 140 L 200 65 L 350 140 L 200 215 Z" fill="none" stroke="#FFFFFF" stroke-dasharray="6,5" stroke-width="2" stroke-linejoin="round" opacity="0.8"/>
             
-            <circle cx="200" cy="120" r="38" fill="#34D399" opacity="0.85" />
-            <circle cx="200" cy="120" r="33" fill="none" stroke="#FFFFFF" stroke-dasharray="4,3" stroke-width="1" />
-            <text x="200" y="123" fill="#064E3B" font-family="'Inter'" font-size="9" font-weight="bold" text-anchor="middle">Eco-Park</text>
+            <ellipse cx="200" cy="144" rx="42" ry="22" fill="#059669" />
+            <ellipse cx="200" cy="140" rx="42" ry="22" fill="#34D399" filter="url(#soft-shadow)" />
+            <text x="200" y="143" fill="#064E3B" font-family="'Inter'" font-size="8" font-weight="bold" text-anchor="middle">Eco-Park</text>
             
-            <g transform="translate(200, 105)">
-                <path d="M 0 0 C -6 -6, -10 -14, -10 -20 C -10 -26, -5 -30, 0 -30 C 5 -30, 10 -26, 10 -20 C 10 -14, 6 -6, 0 0 Z" fill="#EF4444" />
-                <circle cx="0" cy="-20" r="4" fill="#FFFFFF" />
-                <text x="0" y="-34" fill="#EF4444" font-family="'Inter'" font-size="8" font-weight="bold" text-anchor="middle">Playground</text>
+            <g transform="translate(60, 60)" filter="url(#soft-shadow)">
+                <polygon points="0,75 35,57.5 70,75 35,92.5" fill="#000000" opacity="0.15" />
+                <polygon points="0,25 35,42.5 35,75 0,57.5" fill="url(#wall-front)" />
+                <polygon points="35,42.5 70,25 70,57.5 35,75" fill="url(#wall-side)" />
+                <polygon points="0,25 35,7.5 70,25 35,42.5" fill="url(#roof-top)" />
+                <text x="35" y="32" fill="#FFFFFF" font-family="'Inter'" font-size="9" font-weight="700" text-anchor="middle">Block A</text>
             </g>
             
-            <g transform="translate(140, 180)">
-                <path d="M 0 0 C -6 -6, -10 -14, -10 -20 C -10 -26, -5 -30, 0 -30 C 5 -30, 10 -26, 10 -20 C 10 -14, 6 -6, 0 0 Z" fill="#10B981" />
-                <circle cx="0" cy="-20" r="4" fill="#FFFFFF" />
-                <text x="0" y="-34" fill="#10B981" font-family="'Inter'" font-size="8" font-weight="bold" text-anchor="middle">Jog Track</text>
+            <g transform="translate(270, 60)" filter="url(#soft-shadow)">
+                <polygon points="0,75 35,57.5 70,75 35,92.5" fill="#000000" opacity="0.15" />
+                <polygon points="0,25 35,42.5 35,75 0,57.5" fill="url(#wall-front)" />
+                <polygon points="35,42.5 70,25 70,57.5 35,75" fill="url(#wall-side)" />
+                <polygon points="0,25 35,7.5 70,25 35,42.5" fill="url(#roof-top)" />
+                <text x="35" y="32" fill="#FFFFFF" font-family="'Inter'" font-size="9" font-weight="700" text-anchor="middle">Block B</text>
             </g>
             
-            <g transform="translate(280, 150)">
-                <path d="M 0 0 C -6 -6, -10 -14, -10 -20 C -10 -26, -5 -30, 0 -30 C 5 -30, 10 -26, 10 -20 C 10 -14, 6 -6, 0 0 Z" fill="#3B82F6" />
-                <circle cx="0" cy="-20" r="4" fill="#FFFFFF" />
-                <text x="0" y="-34" fill="#3B82F6" font-family="'Inter'" font-size="8" font-weight="bold" text-anchor="middle">Main Road</text>
+            <path d="M 112 112 L 158 130" stroke="#60A5FA" stroke-width="4" stroke-dasharray="5,3" fill="none" opacity="0.8"/>
+            <path d="M 288 112 L 242 130" stroke="#60A5FA" stroke-width="4" stroke-dasharray="5,3" fill="none" opacity="0.8"/>
+            
+            <g transform="translate(200, 125)">
+                <ellipse cx="0" cy="0" rx="6" ry="3" fill="#000000" opacity="0.2" />
+                <path d="M 0 -8 C -4 -12, -7 -18, -7 -22 C -7 -26, -3 -29, 0 -29 C 3 -29, 7 -26, 7 -22 C 7 -18, 4 -12, 0 -8 Z" fill="#EF4444" />
+                <circle cx="0" cy="-22" r="2.5" fill="#FFFFFF" />
+                <text x="0" y="-33" fill="#EF4444" font-family="'Inter'" font-size="7.5" font-weight="bold" text-anchor="middle">Playground</text>
+            </g>
+            
+            <g transform="translate(130, 175)">
+                <ellipse cx="0" cy="0" rx="6" ry="3" fill="#000000" opacity="0.2" />
+                <path d="M 0 -8 C -4 -12, -7 -18, -7 -22 C -7 -26, -3 -29, 0 -29 C 3 -29, 7 -26, 7 -22 C 7 -18, 4 -12, 0 -8 Z" fill="#10B981" />
+                <circle cx="0" cy="-22" r="2.5" fill="#FFFFFF" />
+                <text x="0" y="-33" fill="#10B981" font-family="'Inter'" font-size="7.5" font-weight="bold" text-anchor="middle">Jog Track</text>
+            </g>
+            
+            <g transform="translate(270, 175)">
+                <ellipse cx="0" cy="0" rx="6" ry="3" fill="#000000" opacity="0.2" />
+                <path d="M 0 -8 C -4 -12, -7 -18, -7 -22 C -7 -26, -3 -29, 0 -29 C 3 -29, 7 -26, 7 -22 C 7 -18, 4 -12, 0 -8 Z" fill="#3B82F6" />
+                <circle cx="0" cy="-22" r="2.5" fill="#FFFFFF" />
+                <text x="0" y="-33" fill="#3B82F6" font-family="'Inter'" font-size="7.5" font-weight="bold" text-anchor="middle">Main Road</text>
             </g>
         </svg>
     </div>
-    """, unsafe_allow_html=True) # 已经加上了 unsafe_allow_html=True
+    """, unsafe_allow_html=True)
     
-    # 实时计划进度
+    # 实时项目计划进度条
     st.markdown("<h4 style='color: #113826; margin-top: 15px; font-weight:600;'>Live Sustainability Projects</h4>", unsafe_allow_html=True)
     st.write("Sime Darby Property’s active infrastructure projects in our condominium:")
     
@@ -415,7 +482,7 @@ with tab3:
     
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 社区地标详情
+    # 社区筑路地标详情描述
     st.markdown("<h4 style='color: #113826; margin-top: 10px; font-weight:600;'>Recycled Infrastructure Landmarks</h4>", unsafe_allow_html=True)
     
     st.markdown("""
