@@ -603,3 +603,85 @@ with tab3:
         </span>
     </div>
     """, unsafe_allow_html=True)
+
+    # ==================== 🌟 3D IoT Smart Chute Mechanism Simulator 🌟 ====================
+    st.markdown("<h3 style='color: #113826; font-weight:600; margin-top:30px;'>3D Smart Bin Mechanism Simulator</h3>", unsafe_allow_html=True)
+    st.write("Interact and visualize how our patent-pending vibrating dispersal and gravity chute work in real-time.")
+
+    # 3D 状态选择器
+    sim_status = st.selectbox(
+        "Select Operation Stage to Visualize:",
+        ["[1] IDLE / WAITING", "[2] SHAKING & VIBRATION (Item Dispersal)", "[3] CAMERA SHUTTER (AI Tracking)", "[4] CHUTE DROP (Board Open)"]
+    )
+
+    # 配合不同状态，动态渲染 3D 机械结构图
+    # 状态 2: 带有左右震动的视差；状态 4: 底盘翻转开合 3D
+    vibe_anim = "animation: shake 0.2s infinite;" if "SHAKING" in sim_status else ""
+    cam_active_color = "#34D399" if "CAMERA" in sim_status else "#94A3B8"
+    shutter_flash = "animation: pulse 0.5s infinite;" if "CAMERA" in sim_status else ""
+    board_rotation = "transform: rotate(30deg); transform-origin: 100px 140px;" if "CHUTE DROP" in sim_status else ""
+
+    st.markdown(f"""
+    <div style="background-color: #0F172A; padding: 20px; border-radius: 16px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.15);">
+        <svg viewBox="0 0 400 240" width="100%" height="auto">
+            <style>
+                @keyframes shake {{
+                    0% {{ transform: translate(1px, 1px) rotate(0deg); }}
+                    10% {{ transform: translate(-1px, -2px) rotate(-1deg); }}
+                    20% {{ transform: translate(-3px, 0px) rotate(1deg); }}
+                    30% {{ transform: translate(0px, 2px) rotate(0deg); }}
+                    40% {{ transform: translate(1px, -1px) rotate(1deg); }}
+                    50% {{ transform: translate(-1px, 2px) rotate(-1deg); }}
+                    60% {{ transform: translate(-3px, 1px) rotate(0deg); }}
+                    70% {{ transform: translate(2px, 1px) rotate(-1deg); }}
+                    80% {{ transform: translate(-1px, -1px) rotate(1deg); }}
+                    90% {{ transform: translate(2px, 2px) rotate(0deg); }}
+                    100% {{ transform: translate(1px, -2px) rotate(-1deg); }}
+                }}
+                @keyframes pulse {{
+                    0% {{ opacity: 0.3; }}
+                    50% {{ opacity: 1; fill: #10B981; }}
+                    100% {{ opacity: 0.3; }}
+                }}
+            </style>
+            
+            <!-- 3D 垃圾桶背板外框 -->
+            <rect x="80" y="30" width="240" height="180" rx="10" fill="#1E293B" stroke="#334155" stroke-width="2" />
+            
+            <!-- 1. 单高清晰度 wide-angle 相机 (顶部居中) -->
+            <g transform="translate(200, 45)">
+                <rect x="-15" y="-10" width="30" height="15" rx="3" fill="#0F172A" />
+                <circle cx="0" cy="-2" r="5" fill="{cam_active_color}" style="{shutter_flash}" />
+                <circle cx="0" cy="-2" r="2" fill="#FFFFFF" />
+                <!-- 镜头光束透视区域 -->
+                <polygon points="-15,5 -100,100 100,100 15,5" fill="#34D399" opacity="{'0.15' if 'CAMERA' in sim_status else '0.0'}" />
+            </g>
+            
+            <!-- 2. 电磁震动挡板 (中央位置，支持 shake 震动动画) -->
+            <g style="{vibe_anim} {board_rotation}">
+                <!-- 挡板立体阴影面 -->
+                <polygon points="100,145 300,145 280,155 120,155" fill="#475569" />
+                <!-- 挡板表面 -->
+                <polygon points="100,140 300,140 280,145 120,145" fill="#64748B" stroke="#94A3B8" stroke-width="1" />
+                
+                <!-- 挡板上的模拟瓶子 -->
+                <g transform="translate(180, 115)">
+                    <rect x="0" y="0" width="40" height="20" rx="4" fill="#60A5FA" opacity="0.8" />
+                    <rect x="36" y="5" width="8" height="10" rx="1" fill="#FFFFFF" opacity="0.9" />
+                </g>
+            </g>
+            
+            <!-- 3. 重力管道漏斗 (Chute funnel) -->
+            <polygon points="80,180 140,210 260,210 320,180" fill="#334155" opacity="0.5" />
+            
+            <!-- 仪表盘文字提示 -->
+            <rect x="90" y="185" width="220" height="20" rx="4" fill="#0F172A" />
+            <text x="200" y="198" fill="#10B981" font-family="monospace" font-size="8.5" text-anchor="middle">
+                {"[SYSTEM IDLE] READY TO DEPOSIT" if "IDLE" in sim_status else ""}
+                {"[BLE VIBRATION ACTIVE] DISPERSING WASTE..." if "VIBRATION" in sim_status else ""}
+                {"[AI CV ACTIVE] CLASSIFYING RECYCLABLES..." if "CAMERA" in sim_status else ""}
+                {"[HATCH FLIPPED] DISPATCHED TO CHUTE BASE" if "DROP" in sim_status else ""}
+            </text>
+        </svg>
+    </div>
+    """, unsafe_allow_html=True)
